@@ -75,29 +75,13 @@ async def custom_swagger_ui_html():
         }
     }, true);
 
-    // 2. Add dedicated 'Open PDF in New Tab ↗' button right next to Execute
+    // 2. Refine the native Execute button label seamlessly without breaking button group layout
     setInterval(function() {
         var op = document.querySelector('[id*="stream_pdf"], [data-path*="/api/v1/preprints/pdf"]');
-        if (op && !op.querySelector('.btn-new-tab')) {
+        if (op) {
             var execBtn = op.querySelector('button.execute');
-            if (execBtn) {
-                var btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'btn btn-new-tab';
-                btn.innerText = 'Open PDF in New Tab ↗';
-                btn.style.cssText = 'background:#1a73e8;color:#fff;border:none;padding:8px 16px;border-radius:4px;font-weight:600;margin-left:12px;cursor:pointer;display:inline-block;';
-                btn.onclick = function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    var input = op.querySelector('input');
-                    var val = input ? input.value.trim() : '';
-                    if (val) {
-                        window.open('/api/v1/preprints/pdf?doi=' + encodeURIComponent(val) + '&raw=true', '_blank');
-                    } else {
-                        alert('Please enter a DOI first!');
-                    }
-                };
-                execBtn.parentNode.insertBefore(btn, execBtn.nextSibling);
+            if (execBtn && execBtn.innerText === 'Execute') {
+                execBtn.innerText = 'Execute & View PDF ↗';
             }
         }
     }, 300);
@@ -135,52 +119,8 @@ def root():
         "version": "1.0.0",
         "storage_mode": "in-memory (zero-disk-overhead)",
         "docs_url": "/docs",
-        "viewer_url": "/viewer",
         "status": "healthy"
     }
-
-@app.get("/viewer", response_class=HTMLResponse, tags=["Health & Info"])
-def pdf_viewer():
-    """Lightweight direct browser viewer to preview and test preprint PDFs without Swagger UI memory overhead."""
-    return """<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Preprint PDF Viewer</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 680px; margin: 40px auto; padding: 20px; line-height: 1.6; color: #202124; background: #fff; }
-        h1 { font-size: 24px; color: #1a73e8; margin-bottom: 24px; }
-        .card { background: #f8f9fa; border: 1px solid #dadce0; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
-        label { display: block; font-weight: 600; margin-bottom: 8px; font-size: 14px; }
-        .input-group { display: flex; gap: 8px; }
-        input[type="text"] { flex: 1; padding: 10px 14px; font-size: 15px; border: 1px solid #dadce0; border-radius: 6px; outline: none; }
-        input[type="text"]:focus { border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26,115,232,0.2); }
-        button { background: #1a73e8; color: white; border: none; padding: 10px 20px; font-size: 15px; font-weight: 500; border-radius: 6px; cursor: pointer; white-space: nowrap; transition: background 0.15s; }
-        button:hover { background: #1557b0; }
-    </style>
-</head>
-<body>
-    <h1>📄 Preprint PDF Viewer</h1>
-    
-    <div class="card">
-        <label for="doi">Preprint DOI:</label>
-        <div class="input-group">
-            <input type="text" id="doi" placeholder="Enter DOI (e.g. 10.1101/...)">
-            <button onclick="openPdf()">Open PDF in New Tab ↗</button>
-        </div>
-    </div>
-
-    <script>
-        function openPdf() {
-            var doi = document.getElementById('doi').value.trim();
-            if (doi) {
-                window.open('/api/v1/preprints/pdf?doi=' + encodeURIComponent(doi), '_blank');
-            }
-        }
-    </script>
-</body>
-</html>"""
 
 @app.get("/api/v1/preprints/repos", tags=["Metadata & DOIs"])
 def list_repositories():
@@ -315,7 +255,7 @@ def stream_pdf(
     request: Request,
     doi: str = Query(..., description="Preprint DOI (e.g. 10.1101/2024.01.15.575631 or 10.26434/chemrxiv-2024-xyz)"),
     repo: Optional[RepoName] = Query(None, description="Optional: explicitly specify repository if known"),
-    raw: bool = Query(False, description="Set true to force raw binary stream (automatically true for Python & scripts)")
+    raw: bool = Query(False, include_in_schema=False)
 ):
     """
     Streams the PDF binary directly into the response without saving to disk.

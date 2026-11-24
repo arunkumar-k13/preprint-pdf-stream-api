@@ -208,7 +208,9 @@ def stream_pdf_bytes(doi: str, repo: Optional[str] = None, timeout: int = DEFAUL
 
     # Validate %PDF magic header
     if not content.startswith(b"%PDF"):
+        if content.startswith(b"PK\x03\x04"):
+            raise ValueError("Upstream manuscript was uploaded by author as a Word document (.docx), not a PDF.")
         # Sometimes html landing page is returned instead of direct PDF
-        raise ValueError("Upstream response did not begin with %PDF header (likely redirected to landing page).")
+        raise ValueError("Upstream response did not begin with %PDF header (likely redirected to landing page or not a PDF).")
 
     return content, filename, detected_repo
