@@ -61,7 +61,7 @@ async def custom_swagger_ui_html():
     )
     custom_script = """
     <script>
-    // 1. Intercept "Execute" click on the PDF endpoint to immediately open in a new tab
+    // 1. Intercept "Execute" click on the PDF endpoint to trigger direct download without opening a new tab
     document.addEventListener('click', function(e) {
         var btn = e.target.closest('button.execute');
         if (!btn) return;
@@ -71,7 +71,12 @@ async def custom_swagger_ui_html():
         var input = op.querySelector('input');
         var val = input ? input.value.trim() : '';
         if (val) {
-            window.open('/api/v1/preprints/pdf?doi=' + encodeURIComponent(val) + '&raw=true', '_blank');
+            var dl = document.createElement('a');
+            dl.href = '/api/v1/preprints/pdf?doi=' + encodeURIComponent(val) + '&download=true';
+            dl.download = '';
+            document.body.appendChild(dl);
+            dl.click();
+            document.body.removeChild(dl);
         }
     }, true);
 
@@ -81,7 +86,7 @@ async def custom_swagger_ui_html():
         if (op) {
             var execBtn = op.querySelector('button.execute');
             if (execBtn && execBtn.innerText === 'Execute') {
-                execBtn.innerText = 'Execute & View PDF ↗';
+                execBtn.innerText = 'Execute & Download PDF ⬇';
             }
         }
     }, 300);
@@ -255,6 +260,7 @@ def stream_pdf(
     request: Request,
     doi: str = Query(..., description="Preprint DOI (e.g. 10.1101/2024.01.15.575631 or 10.26434/chemrxiv-2024-xyz)"),
     repo: Optional[RepoName] = Query(None, description="Optional: explicitly specify repository if known"),
+    download: bool = Query(False, include_in_schema=False),
     raw: bool = Query(False, include_in_schema=False)
 ):
     """
@@ -282,27 +288,31 @@ def stream_pdf(
     # sec_fetch_dest is 'document' and sec_fetch_mode is 'navigate'.
     # In Swagger UI's internal AJAX fetch, sec_fetch_dest is 'empty' and referer contains '/docs'.
     is_direct_tab = (sec_fetch_dest == "document") or (sec_fetch_mode == "navigate")
-    is_swagger_ajax = ("/docs" in referer) and (not is_direct_tab) and (not raw)
+    is_swagger_ajax = ("/docs" in referer) and (not is_direct_tab) and (not raw) and (not download)
 
     if is_swagger_ajax:
         # Prevent Swagger UI from buffering multi-megabyte binary in browser memory (which crashes Chrome)
         host = request.headers.get("host", "127.0.0.1:8000")
-        direct_url = f"{request.url.scheme}://{host}/api/v1/preprints/pdf?doi={urllib.parse.quote(doi)}&raw=true"
+        download_url = f"{request.url.scheme}://{host}/api/v1/preprints/pdf?doi={urllib.parse.quote(doi)}&download=true"
+        view_url = f"{request.url.scheme}://{host}/api/v1/preprints/pdf?doi={urllib.parse.quote(doi)}&raw=true"
         return JSONResponse(
             content={
                 "status": "success",
                 "doi": doi,
                 "repository": detected_repo,
+                "filename": filename,
                 "size_bytes": len(pdf_bytes),
                 "processing_time_ms": elapsed_ms,
-                "message": "PDF resolved successfully. Opened in a new tab.",
-                "open_pdf_url": direct_url
+                "download_url": download_url,
+                "view_url": view_url,
+                "message": "Direct download started. You can also click download_url above to re-download."
             }
         )
 
     # Return stream directly from memory buffer
+    disposition = "attachment" if download else "inline"
     headers = {
-        "Content-Disposition": f'inline; filename="{filename}"',
+        "Content-Disposition": f'{disposition}; filename="{filename}"',
         "X-Preprint-Repo": detected_repo,
         "X-Processing-Time-Ms": str(elapsed_ms),
         "X-PDF-Size-Bytes": str(len(pdf_bytes)),
