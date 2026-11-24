@@ -236,8 +236,8 @@ def stream_pdf(
         "X-PDF-Size-Bytes": str(len(pdf_bytes)),
     }
 
-    return StreamingResponse(
-        io.BytesIO(pdf_bytes),
+    return Response(
+        content=pdf_bytes,
         media_type="application/pdf",
         headers=headers
     )
