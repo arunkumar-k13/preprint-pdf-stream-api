@@ -9,11 +9,12 @@ import os
 import io
 import time
 import threading
+import urllib.parse
 from contextlib import asynccontextmanager
 from datetime import datetime
 from enum import Enum
 from typing import Optional, List
-from fastapi import FastAPI, Query, HTTPException, Response
+from fastapi import FastAPI, Query, HTTPException, Response, Request
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,22 +61,38 @@ async def custom_swagger_ui_html():
     )
     custom_script = """
     <script>
+    // 1. Intercept "Execute" click on the PDF endpoint to immediately open in a new tab
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('button.execute');
+        if (!btn) return;
+        var op = btn.closest('[id*="stream_pdf"], [data-path*="/api/v1/preprints/pdf"]');
+        if (!op) return;
+
+        var input = op.querySelector('input');
+        var val = input ? input.value.trim() : '';
+        if (val) {
+            window.open('/api/v1/preprints/pdf?doi=' + encodeURIComponent(val) + '&raw=true', '_blank');
+        }
+    }, true);
+
+    // 2. Add dedicated 'Open PDF in New Tab ↗' button right next to Execute
     setInterval(function() {
         var op = document.querySelector('[id*="stream_pdf"], [data-path*="/api/v1/preprints/pdf"]');
         if (op && !op.querySelector('.btn-new-tab')) {
             var execBtn = op.querySelector('button.execute');
             if (execBtn) {
                 var btn = document.createElement('button');
+                btn.type = 'button';
                 btn.className = 'btn btn-new-tab';
                 btn.innerText = 'Open PDF in New Tab ↗';
-                btn.style.cssText = 'background:#1a73e8;color:#fff;border:none;padding:8px 16px;border-radius:4px;font-weight:600;margin-left:12px;cursor:pointer;';
+                btn.style.cssText = 'background:#1a73e8;color:#fff;border:none;padding:8px 16px;border-radius:4px;font-weight:600;margin-left:12px;cursor:pointer;display:inline-block;';
                 btn.onclick = function(e) {
                     e.preventDefault();
                     e.stopPropagation();
                     var input = op.querySelector('input');
                     var val = input ? input.value.trim() : '';
                     if (val) {
-                        window.open('/api/v1/preprints/pdf?doi=' + encodeURIComponent(val), '_blank');
+                        window.open('/api/v1/preprints/pdf?doi=' + encodeURIComponent(val) + '&raw=true', '_blank');
                     } else {
                         alert('Please enter a DOI first!');
                     }
@@ -83,7 +100,7 @@ async def custom_swagger_ui_html():
                 execBtn.parentNode.insertBefore(btn, execBtn.nextSibling);
             }
         }
-    }, 400);
+    }, 300);
     </script>
     """
     body = html_resp.body.decode("utf-8").replace("</body>", custom_script + "</body>")
@@ -295,8 +312,10 @@ def get_dois(
     }
 )
 def stream_pdf(
+    request: Request,
     doi: str = Query(..., description="Preprint DOI (e.g. 10.1101/2024.01.15.575631 or 10.26434/chemrxiv-2024-xyz)"),
-    repo: Optional[RepoName] = Query(None, description="Optional: explicitly specify repository if known")
+    repo: Optional[RepoName] = Query(None, description="Optional: explicitly specify repository if known"),
+    raw: bool = Query(False, description="Set true to force raw binary stream (automatically true for Python & scripts)")
 ):
     """
     Streams the PDF binary directly into the response without saving to disk.
@@ -313,6 +332,33 @@ def stream_pdf(
         raise HTTPException(status_code=500, detail=f"Unexpected error streaming PDF: {str(e)}")
 
     elapsed_ms = int((time.time() - start_time) * 1000)
+
+    # Detect in-page AJAX fetch from Swagger UI
+    referer = request.headers.get("referer", "")
+    sec_fetch_dest = request.headers.get("sec-fetch-dest", "")
+    sec_fetch_mode = request.headers.get("sec-fetch-mode", "")
+
+    # In modern browsers, when navigating directly in a tab (address bar or window.open):
+    # sec_fetch_dest is 'document' and sec_fetch_mode is 'navigate'.
+    # In Swagger UI's internal AJAX fetch, sec_fetch_dest is 'empty' and referer contains '/docs'.
+    is_direct_tab = (sec_fetch_dest == "document") or (sec_fetch_mode == "navigate")
+    is_swagger_ajax = ("/docs" in referer) and (not is_direct_tab) and (not raw)
+
+    if is_swagger_ajax:
+        # Prevent Swagger UI from buffering multi-megabyte binary in browser memory (which crashes Chrome)
+        host = request.headers.get("host", "127.0.0.1:8000")
+        direct_url = f"{request.url.scheme}://{host}/api/v1/preprints/pdf?doi={urllib.parse.quote(doi)}&raw=true"
+        return JSONResponse(
+            content={
+                "status": "success",
+                "doi": doi,
+                "repository": detected_repo,
+                "size_bytes": len(pdf_bytes),
+                "processing_time_ms": elapsed_ms,
+                "message": "PDF resolved successfully. Opened in a new tab.",
+                "open_pdf_url": direct_url
+            }
+        )
 
     # Return stream directly from memory buffer
     headers = {
