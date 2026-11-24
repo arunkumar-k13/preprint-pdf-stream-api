@@ -14,7 +14,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional, List
 from fastapi import FastAPI, Query, HTTPException, Response
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -45,7 +45,8 @@ app = FastAPI(
     title="Preprint PDF",
     description="API for streaming preprint PDFs and querying repository DOIs.",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    swagger_ui_parameters={"syntaxHighlight": False}
 )
 
 # Enable CORS for internal services
@@ -77,8 +78,73 @@ def root():
         "version": "1.0.0",
         "storage_mode": "in-memory (zero-disk-overhead)",
         "docs_url": "/docs",
+        "viewer_url": "/viewer",
         "status": "healthy"
     }
+
+@app.get("/viewer", response_class=HTMLResponse, tags=["Health & Info"])
+def pdf_viewer():
+    """Lightweight direct browser viewer to preview and test preprint PDFs without Swagger UI memory overhead."""
+    return """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Preprint PDF Direct Viewer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 680px; margin: 40px auto; padding: 20px; line-height: 1.6; color: #202124; background: #fff; }
+        h1 { font-size: 24px; color: #1a73e8; margin-bottom: 8px; }
+        p.subtitle { color: #5f6368; margin-top: 0; margin-bottom: 24px; font-size: 14px; }
+        .card { background: #f8f9fa; border: 1px solid #dadce0; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        label { display: block; font-weight: 600; margin-bottom: 8px; font-size: 14px; }
+        .input-group { display: flex; gap: 8px; margin-bottom: 16px; }
+        input[type="text"] { flex: 1; padding: 10px 14px; font-size: 15px; border: 1px solid #dadce0; border-radius: 6px; outline: none; }
+        input[type="text"]:focus { border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26,115,232,0.2); }
+        button { background: #1a73e8; color: white; border: none; padding: 10px 20px; font-size: 15px; font-weight: 500; border-radius: 6px; cursor: pointer; white-space: nowrap; transition: background 0.15s; }
+        button:hover { background: #1557b0; }
+        .samples { font-size: 13px; color: #5f6368; }
+        .samples strong { color: #3c4043; }
+        .sample-item { display: inline-block; background: #e8f0fe; color: #1a73e8; padding: 4px 10px; border-radius: 12px; margin: 4px 4px 4px 0; text-decoration: none; cursor: pointer; font-family: monospace; font-size: 12px; }
+        .sample-item:hover { background: #d2e3fc; }
+        .info-box { margin-top: 24px; padding: 16px; background: #e6f4ea; border-radius: 6px; font-size: 13px; color: #137333; }
+    </style>
+</head>
+<body>
+    <h1>📄 Preprint PDF Direct Stream Viewer</h1>
+    <p class="subtitle">Stream preprint PDFs on-the-fly directly into Chrome's native viewer (zero disk storage, zero Swagger UI memory freeze).</p>
+    
+    <div class="card">
+        <label for="doi">Preprint DOI:</label>
+        <div class="input-group">
+            <input type="text" id="doi" value="10.1101/2021.03.26.21254381" placeholder="Enter DOI (e.g. 10.1101/...)">
+            <button onclick="openPdf()">Open PDF in New Tab ↗</button>
+        </div>
+        <div class="samples">
+            <strong>Click a sample DOI to test:</strong><br>
+            <span class="sample-item" onclick="setAndOpen('10.1101/2021.03.26.21254381')">medRxiv (10.1101/2021.03.26.21254381)</span>
+            <span class="sample-item" onclick="setAndOpen('10.26434/chemrxiv.15011281/v1')">ChemRxiv (10.26434/chemrxiv.15011281/v1)</span>
+            <span class="sample-item" onclick="setAndOpen('10.31235/osf.io/dptb7_v1')">SocArXiv (10.31235/osf.io/dptb7_v1)</span>
+        </div>
+    </div>
+
+    <div class="info-box">
+        ✓ <strong>Production Ready:</strong> In Python or internal tools, call <code>requests.get('/api/v1/preprints/pdf?doi=...')</code> to receive the raw bytes in memory with zero disk overhead.
+    </div>
+
+    <script>
+        function setAndOpen(doi) {
+            document.getElementById('doi').value = doi;
+            openPdf();
+        }
+        function openPdf() {
+            var doi = document.getElementById('doi').value.trim();
+            if (doi) {
+                window.open('/api/v1/preprints/pdf?doi=' + encodeURIComponent(doi), '_blank');
+            }
+        }
+    </script>
+</body>
+</html>"""
 
 @app.get("/api/v1/preprints/repos", tags=["Metadata & DOIs"])
 def list_repositories():
@@ -172,7 +238,8 @@ def get_dois(
             "doi": doi,
             "title": doc.get("title", ""),
             "submission_date": doc.get("submission_date") or None,
-            "version": doc.get("version", 1)
+            "version": doc.get("version", 1),
+            "pdf_url": f"/api/v1/preprints/pdf?doi={doi}"
         })
 
     response_data = {
@@ -214,6 +281,11 @@ def stream_pdf(
 ):
     """
     Streams the PDF binary directly into the response without saving to disk.
+
+    ### 💡 Quick Browser Testing Links:
+    - [Test medRxiv PDF (10.1101/2021.03.26.21254381)](/api/v1/preprints/pdf?doi=10.1101/2021.03.26.21254381)
+    - [Test ChemRxiv PDF (10.26434/chemrxiv.15011281/v1)](/api/v1/preprints/pdf?doi=10.26434/chemrxiv.15011281/v1)
+    - [Interactive Web Tester Page](/viewer)
     """
     start_time = time.time()
     clean_repo = repo.value if isinstance(repo, RepoName) else (repo.lower().strip() if repo else None)
