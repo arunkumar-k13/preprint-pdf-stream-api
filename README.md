@@ -184,7 +184,8 @@ GET /api/v1/preprints/dois?repo=biorxiv&from_date=2023-01-01&to_date=2023-12-31&
       "doi": "10.1101/2023.01.15.524100",
       "title": "Neural mechanisms of spatial navigation...",
       "submission_date": "2023-01-15",
-      "version": 1
+      "version": 1,
+      "pdf_url": "/api/v1/preprints/pdf?doi=10.1101/2023.01.15.524100"
     }
   ]
 }
@@ -196,6 +197,11 @@ GET /api/v1/preprints/dois?repo=biorxiv&from_date=2023-01-01&to_date=2023-12-31&
 ```http
 GET /api/v1/preprints/pdf?doi=10.1101/2021.03.26.21254381
 ```
+
+**Query Parameters:**
+* `doi` *(required)*: Preprint DOI to resolve and stream.
+* `repo` *(optional)*: Explicitly specify repository (`arxiv`, `biorxiv`, `medrxiv`, `chemrxiv`, `psyarxiv`, `socarxiv`).
+* `download` *(optional)*: Set to `true` to force direct attachment download (`Content-Disposition: attachment`), or `false` (default) for inline stream.
 
 * **Status:** `200 OK`
 * **Content-Type:** `application/pdf`
