@@ -258,7 +258,7 @@ def get_dois(
 )
 def stream_pdf(
     request: Request,
-    doi: str = Query(..., description="Preprint DOI (e.g. 10.1101/2024.01.15.575631 or 10.26434/chemrxiv-2024-xyz)"),
+    doi: str = Query(..., description="Preprint DOI (e.g. 10.1101/2023.01.15.524100 or 10.1101/2021.12.22.21268267)"),
     repo: Optional[RepoName] = Query(None, description="Optional: explicitly specify repository if known"),
     download: bool = Query(False, include_in_schema=False),
     raw: bool = Query(False, include_in_schema=False)

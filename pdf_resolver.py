@@ -191,15 +191,17 @@ def stream_pdf_bytes(doi: str, repo: Optional[str] = None, timeout: int = DEFAUL
                 raise RuntimeError(f"Network error contacting upstream {pdf_url}: {e}")
             time.sleep(1)
 
-    # If bioRxiv fails with 404 on 10.1101, try medRxiv as fallback
-    if resp.status_code == 404 and detected_repo == "biorxiv" and "10.1101/" in clean_doi:
+    # If bioRxiv fails with 404 or 403 on 10.1101, try medRxiv as fallback
+    if resp.status_code in (403, 404) and detected_repo == "biorxiv" and "10.1101/" in clean_doi:
         alt_repo = "medrxiv"
         pdf_url, filename = resolve_pdf_url(clean_doi, alt_repo, doc)
-        resp = requests.get(pdf_url, headers=headers, impersonate="chrome124", allow_redirects=True, timeout=timeout)
+        resp = requests.get(pdf_url, impersonate="chrome124", allow_redirects=True, timeout=timeout)
         if resp.status_code == 200:
             detected_repo = alt_repo
 
     if resp.status_code != 200:
+        if resp.status_code == 403 and ("permission" in resp.text.lower() or "forbidden" in resp.text.lower()):
+            raise RuntimeError(f"Preprint manuscript for DOI '{clean_doi}' was not found on {detected_repo} (non-existent DOI or withdrawn paper).")
         raise RuntimeError(f"Upstream server returned HTTP {resp.status_code} for {pdf_url}")
 
     content = resp.content
